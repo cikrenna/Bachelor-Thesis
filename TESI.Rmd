@@ -1,0 +1,257 @@
+---
+title: "TESI Prophet"
+author: "Renna Francesco"
+date: "2023-12-28"
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+  pdf_document: default
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(reticulate)
+knitr::knit_engines$set(python = reticulate::eng_python)
+```
+
+## Capitolo 4: Confronto tra Prophet e Reti LSTM
+
+
+# Introduzione
+
+Nel corso del presente elaborato, sono stati esplorati due approcci distinti per la previsione di una serie storica, confrontando la precisione e l'efficacia del metodo basato sulla libreria Prophet e quello basato sulle Reti Neurali Artificiali. Nello specifico, si studia quanto precisamente è possibile “prevedere” il fatturato di 30 giorni nel futuro di due ipotetiche aziende.
+
+È importante notare che per ciascun metodo è stato adottato un approccio attento alla scelta del dataset di input al fine di ottenere risultati significativi. Per l'analisi con la libreria Prophet sono stati presi in considerazione dati giornalieri, fornendo una granularità temporale dettagliata. D'altra parte, nell'applicazione delle Reti Neurali, è stato utilizzato un dataset contenente dati espressi su base mensile.
+
+
+# Prophet
+
+In questo
+
+Prima di iniziare con l'analisi è necessario caricare tutte le dovute librerie utili alla causa.
+
+```{r}
+library(readxl)
+library(scales)
+library(patchwork)
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(prophet)
+```
+
+```{r}
+data = read_excel("C:/Users/kekko/OneDrive/Desktop/FRANCESCO/TESI/dati/Tomato.xlsx", sheet = 'aa')
+
+print(data)
+```
+
+
+# Python
+
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from keras.models import Sequential
+from keras.layers import LSTM, Dense
+
+```
+
+
+```{python}
+
+df = pd.read_excel("C:/Users/kekko/OneDrive/Desktop/TESI/dati/dff.xlsx", sheet_name = 'df')
+df = df.set_index('Data')
+
+# Visualizzazione del DataFrame risultante
+print(df)
+```
+
+
+```{python}
+df.plot(y = 'Fatturato', kind='line')
+plt.title('Fatturato nel tempo')
+plt.xlabel('Data')
+plt.ylabel('Fatturato')
+plt.show()
+plt.figure()
+```
+
+```{python}
+# Creare una sequenza univariata dal DataFrame
+def create_univariate_sequence(df_column, n_steps):
+    sequence = df_column.tolist()
+    X, y = list(), list()
+    for i in range(len(sequence)):
+        # trovare la fine del pattern corrente
+        end_ix = i + n_steps
+        # controllare se siamo oltre la lunghezza della sequenza
+        if end_ix > len(sequence) - 1:
+            break
+        # raccogliere le parti di input e output del pattern corrente
+        seq_x, seq_y = sequence[i:end_ix], sequence[end_ix]
+        X.append(seq_x)
+        y.append(seq_y)
+    return np.array(X), np.array(y)
+```
+
+
+```{python}
+# Scegliere il numero di passi temporali
+n_steps = 3
+
+# Creare la sequenza di input e output utilizzando la colonna "Fatturato"
+X, y = create_univariate_sequence(df['Fatturato'], n_steps)
+
+# Standardizzare i dati
+scaler = MinMaxScaler(feature_range=(0, 1))
+X = scaler.fit_transform(X)
+y = scaler.fit_transform(y.reshape(-1, 1))
+
+# Ridimensionare da [samples, timesteps] a [samples, timesteps, features]
+n_features = 1
+X = X.reshape((X.shape[0], X.shape[1], n_features))
+
+# Dividere il set in Train e Test
+train_size = int(len(X) * 0.8)
+test_size = len(X) - train_size
+X_train, X_test = X[0:train_size], X[train_size:len(X)]
+y_train, y_test = y[0:train_size], y[train_size:len(y)]
+```
+
+
+```{python}
+# Definire il modello
+model = Sequential()
+model.add(LSTM(50, activation='relu', input_shape=(n_steps, n_features)))
+model.add(Dense(1))
+model.compile(optimizer='adam', loss='mse')
+
+# Addestrare il modello
+model.fit(X_train, y_train, epochs=200, verbose=0)
+```
+
+
+```{python}
+loss_per_epoch = model.history.history['loss']
+plt.plot(range(len(loss_per_epoch)),loss_per_epoch)
+plt.show()
+plt.figure()
+```
+
+
+```{python}
+# Predire sul set di test
+y_pred = model.predict(X_test, verbose=0)
+
+# De-standardizzare le previsioni e i dati di test
+y_pred_inv = scaler.inverse_transform(y_pred)
+y_test_inv = scaler.inverse_transform(y_test)
+```
+
+
+```{python}
+# Plot delle predizioni e dei veri dati
+plt.figure(figsize=(9, 6))
+plt.plot(y_test_inv, label='Dati Veri')
+plt.plot(y_pred_inv, label='Predizioni')
+plt.title('Predizioni vs Dati Veri')
+plt.xlabel('Osservazioni')
+plt.ylabel('Fatturato')
+plt.legend()
+plt.show()
+```
+
+
+```{python}
+# Predire il valore successivo futuro
+future_steps = 1
+X_future = X[-future_steps:]
+y_pred_future = []
+
+for i in range(future_steps):
+    y_pred_step = model.predict(X_future[i:i+1], verbose=0)
+    y_pred_future.append(y_pred_step)
+
+# De-standardizzare il valore futuro
+y_pred_future_inv = scaler.inverse_transform(np.array(y_pred_future).reshape(-1, 1))
+
+# Valore predetto
+print(y_pred_future_inv)
+```
+
+```{python}
+# Creare il modello di regressione lineare
+m = LinearRegression()
+
+# Adattare il modello ai dati
+m.fit(np.array(y_test_inv).reshape(-1, 1), y_pred_inv)
+
+# Ottenere i coefficienti della retta di regressione
+slope = m.coef_[0]
+intercept = m.intercept_
+
+# Creare una serie di valori x per la retta di regressione
+x_line = np.linspace(min(y_test_inv), max(y_test_inv), 100)
+y_line = slope * x_line + intercept
+
+# Creare lo scatter plot
+plt.scatter(y_test_inv, y_pred_inv, marker='o', label='Dati')
+
+# Aggiungere la retta di regressione
+plt.plot(x_line, y_line, color='red', label='Regressione Lineare')
+
+# Aggiungere etichette, titolo, legenda, etc. a piacere
+plt.xlabel('y_test_inv')
+plt.ylabel('y_pred_inv')
+plt.title('Scatter Plot con Regressione Lineare')
+plt.legend()
+
+# Mostrare il plot
+plt.show()
+
+```
+
+
+```{python}
+# Calcola l'RMSE (Root Mean Squared Error)
+rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+
+# Calcola il MAPE (Mean Absolute Percentage Error)
+mape = np.mean(np.abs((y_test - y_pred) / y_test)) * 100
+
+# Calcola l'R quadro
+r2 = r2_score(y_test, y_pred) * 100
+
+# Calcola il MSE (Mean Squared Error)
+mse = mean_squared_error(y_test, y_pred)
+
+# Stampa i risultati
+print('RMSE:', rmse)
+print('MAPE:', mape)
+print('R^2:', r2)
+print('MSE:', mse)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
